@@ -16,4 +16,10 @@ contract EnergyBazar {
 
   bool renewable;
 
+  function sellPower(string memory _name, uint256 _price, bool _renewable) public{
+    seller = msg.sender;
+    name = _name;
+    price = _price;
+    renewable = _renewable;
+  }
 }
