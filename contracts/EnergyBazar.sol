@@ -22,4 +22,13 @@ contract EnergyBazar {
     price = _price;
     renewable = _renewable;
   }
+
+  function getArticle() public view returns(
+    address _seller,
+    string memory _name,
+    uint256 _price,
+    bool _renewable
+  ){
+    return (seller, name, price, renewable);
+  }
 }
