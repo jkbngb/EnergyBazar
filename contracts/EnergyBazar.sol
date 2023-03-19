@@ -16,13 +16,20 @@ contract EnergyBazar {
 
   bool renewable;
 
+  //Event
+  event ArticleToSell(address indexed _seller, string _name, uint256 _price, bool _renewable);
+
+  //Sell an article
   function sellPower(string memory _name, uint256 _price, bool _renewable) public{
     seller = msg.sender;
     name = _name;
     price = _price;
     renewable = _renewable;
+
+    emit ArticleToSell(seller, name, price, renewable);
   }
 
+  //Return article for sale
   function getArticle() public view returns(
     address _seller,
     string memory _name,
