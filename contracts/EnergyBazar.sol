@@ -3,83 +3,104 @@ pragma solidity ^0.8.16;
 
 contract EnergyBazar {
   
-  struct EnergyArticle{
-    bytes32 id;
+  // Struct for offered article with relevant parameters
+  struct EnergyArticle {
+    bytes32 articleId;
     address payable seller;
     address buyer;
     string name;
     uint256 price;
     bool renewable;
+    bytes32 auctionId;
   }
 
-  //linking unique article IDs to corresponding EnergyArticle struct
+  // Struct to represent an auction
+  struct Auction {
+    bytes32 auctionId;
+    uint256 highestBid;
+    address payable highestBidder; // Change the type to 'address payable'
+    uint256 endTime;
+    bool finalized;
+  }
+
+
+  // Linking unique article IDs to corresponding EnergyArticle struct
   mapping(bytes32 => EnergyArticle) public articles;
 
-  //Events
-  event ArticleToSell(bytes32 indexed _id, address indexed _seller, string _name, uint256 _price, bool _renewable);
-  event ArticleSold(bytes32 indexed _id, address indexed _seller, address indexed _buyer, string _name, uint256 _price, bool _renewable);
+  // Linking unique auction IDs to corresponding Auction struct
+  mapping(bytes32 => Auction) public auctions;
 
+  // Events
+  event AuctionCreated(bytes32 indexed _auctionId, bytes32 indexed _articleId, uint256 _endTime);
+  event NewBid(bytes32 indexed _auctionId, address indexed _bidder, uint256 _value);
+  event AuctionFinalized(bytes32 indexed _auctionId, address indexed _winner, uint256 _value);
 
-  //Sell an article
-  function sellPower(string memory _name, uint256 _price, bool _renewable) public {
-    //generation of unique ID
-    bytes32 id = keccak256(abi.encodePacked(msg.sender, _name, _price, _renewable, block.timestamp));
+  // Sell an article and create an auction
+  function sellPower(string memory _name, uint256 _price, bool _renewable, uint256 _auctionDuration) public {
+    bytes32 articleId = keccak256(abi.encodePacked(msg.sender, _name, _price, _renewable, block.timestamp));
     
-    //create an EnergyArticle struct with name "article"
     EnergyArticle memory article = EnergyArticle({
-      id: id,
+      articleId: articleId,
       seller: payable(msg.sender),
       buyer: address(0),
       name: _name,
       price: _price,
-      renewable: _renewable
+      renewable: _renewable,
+      auctionId: bytes32(0)
     });
 
-    //stores EnergyArticle struct in the "articles" mapping
-    articles[id] = article;
+    articles[articleId] = article;
 
-    //triggers event
-    emit ArticleToSell(article.id, article.seller, article.name, article.price, article.renewable);
+    // Create an auction for the energy article
+    bytes32 auctionId = keccak256(abi.encodePacked(articleId, block.timestamp));
+    uint256 endTime = block.timestamp + _auctionDuration;
+
+    Auction memory auction = Auction({
+      auctionId: auctionId,
+      highestBid: 0,
+      highestBidder: payable(address(0)),
+      endTime: endTime,
+      finalized: false
+    });
+
+    auctions[auctionId] = auction;
+    articles[articleId].auctionId = auctionId;
+    emit AuctionCreated(auctionId, articleId, endTime);
   }
 
-  //Return article for sale
-  function getArticle(bytes32 _id) public view returns(
-    bytes32 id,
-    address _seller,
-    address _buyer,
-    string memory _name,
-    uint256 _price,
-    bool _renewable
-  ){
-    
-    //retrieves the EnergyArticle struct associated with the input _id from the articles mapping and stores it in a memory variable named article.
-    EnergyArticle memory article = articles[_id]; //updated
-    return (article.id, article.seller, article.buyer, article.name, article.price, article.renewable);
+  // Place a bid on an auction
+  function placeBid(bytes32 _articleId) public payable {
+    EnergyArticle storage article = articles[_articleId];
+    Auction storage auction = auctions[article.auctionId];
+
+    require(block.timestamp < auction.endTime, "Auction has ended");
+    require(msg.value >= article.price, "Bid is below seller's initial price");
+    require(msg.value > auction.highestBid, "Bid is too low");
+    require(!auction.finalized, "Auction already finalized");
+
+    if (auction.highestBidder != address(0)) {
+      // Refund previous highest bidder
+      auction.highestBidder.transfer(auction.highestBid);
+    }
+
+    auction.highestBid = msg.value;
+    auction.highestBidder = payable(msg.sender);
+    emit NewBid(article.auctionId, msg.sender, msg.value);
   }
 
-  //Buy an article
-    function buyPower(bytes32 _id) public payable {
-      EnergyArticle storage article = articles[_id];
+  // Finalize the auction
+  function finalizeAuction(bytes32 _articleId) public {
+    EnergyArticle storage article = articles[_articleId];
+    Auction storage auction = auctions[article.auctionId];
 
-      //is article for sale?
-      require(article.seller != address(0), "Article not available");
-      
-      //is article sold yet?
-      require(article.buyer == address(0), "Article already sold");
+    require(msg.sender == article.seller, "Only the seller can finalize the auction");
+    require(block.timestamp >= auction.endTime, "Auction has not ended yet");
+    require(!auction.finalized, "Auction already finalized");
 
-      //is price correct?
-      require(msg.value == article.price, "Wrong price");
+    article.seller.transfer(auction.highestBid);
+    article.buyer = auction.highestBidder;
+    auction.finalized = true;
 
-      //Check if renewable energy is used
-      require(article.renewable, "Non-renewable energy source used");
-
-      //Sender is recorded as Buyer
-      article.buyer = msg.sender;
-
-      // Transfer the value of the transaction to the seller's address
-      article.seller.transfer(msg.value);
-
-      //trigger event
-      emit ArticleSold(article.id, article.seller, article.buyer, article.name, article.price, article.renewable);
+    emit AuctionFinalized(auction.auctionId, auction.highestBidder, auction.highestBid);
   }
 }
